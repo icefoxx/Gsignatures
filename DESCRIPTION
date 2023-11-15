@@ -1,7 +1,7 @@
 Package: Gsignatures
 Type: Package
 Title: A tool for gene set scoring in scRNA-seq data 
-Version: 0.1.0
+Version: 0.9.9
 Author: Qiong Zhang
 Maintainer: Qiong Zhang <transomics@gmail.com>
 Depends: 

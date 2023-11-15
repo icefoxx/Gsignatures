@@ -7,25 +7,28 @@
 \usage{
 GSignatures(
   Seuobj,
+  geneSets,
   assay = "RNA",
   slot = "counts",
-  geneSets,
+  add = F,
   scale = F,
   filterRM = F,
   normalByRow = F,
   imputation = F,
   retriRatio = 0,
-  retriCellRatio = 0.1
+  retriCellRatio = 0.1,
+  dynamic = F,
+  ignore = T
 )
 }
 \arguments{
 \item{Seuobj}{Seurat object}
 
+\item{geneSets}{Gene sets, genes with negative effects should be label with "-" suffix, e.g. c("CD8A", "CD8B", "CD4-", "KLRF1-")}
+
 \item{assay}{Which assay used in the analysis}
 
 \item{slot}{Which slot used in the analysis}
-
-\item{geneSets}{Gene sets, genes with negative effects should be label with "-" suffix, e.g. c("CD8A", "CD8B", "CD4-", "KLRF1-")}
 
 \item{filterRM}{Filter the ribosome and mito genes before analysis}
 
@@ -38,7 +41,7 @@ GSignatures(
 \item{retriCellRatio}{The ratio of cells containing drop out genes.}
 }
 \value{
-Signatures for gene sets
+seu obj with new assay named as 'GSignatures'
 }
 \description{
 Calculate normalized enrichment score for gene sets. To overcome the dropout effects in scRNA-seq data, imputate gene ranking via gene co-expression modules detected by affinity propagation (AP).
