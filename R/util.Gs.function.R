@@ -30,8 +30,9 @@ print_message <- function(..., time = T, verbose = T){
 getExistGenes <- function(expm, geneSets, trim = T, ratio_warn = T, topoint = T){
 
   .genes.all <- rownames(expm)
-  .genes.inq <- unlist(geneSets)
-  if (any(stringr::str_detect(.genes.inq, '-$'))) .genes.inq <- gsub("-$", "", .genes.inq)
+  .genes.raw <- unlist(geneSets)
+  .genes.inq <- .genes.raw
+  if (any(stringr::str_detect(.genes.raw, '-$'))) .genes.inq <- gsub("-$", "", .genes.raw)
   if (isTRUE(trim)) .genes.inq <- gsub('\\.\\d+', '', .genes.inq)
   .genes.inq.f <- .genes.inq %in% .genes.all
   if (!all(.genes.inq.f)) {
@@ -44,7 +45,7 @@ getExistGenes <- function(expm, geneSets, trim = T, ratio_warn = T, topoint = T)
   .geneSets.loci.start <- c(1, .geneSets.loci.end[-length(.geneSets.loci.end)]+1)
   .geneSets.f <- lapply(seq_along(.geneSets.loci.end), function(x) {
     .gene.region <- c(.geneSets.loci.start[x] : .geneSets.loci.end[x])
-    .genes <- .genes.inq[.gene.region][.genes.inq.f[.gene.region]]
+    .genes <- .genes.raw[.gene.region][.genes.inq.f[.gene.region]]
     })
   if (isTRUE(topoint)) {
     names(geneSets) <- stringr::str_replace_all(names(geneSets), pattern = '_', '.')
@@ -129,5 +130,95 @@ calRange <- function(geneSets, geneAll) {
   }))
   .ranges
 }
+
+
+DateMes <- function(mes){
+  message(paste0("[", Sys.time(), "] ", mes))
+}
+
+
+getDatatype <- function(x){
+  if(inherits(x, 'Seurat')) return('seu')
+  if(inherits(x, 'data.frame')) return('df')
+  if (inherits(x, 'matrix')) return('mtx')
+  if (inherits(x, 'character')) return('cha')
+}
+
+inRange <- function(x,y){
+  x >= y[1] & x <= y[2]
+}
+
+
+smKNNCore <- function(s, n, v, w){
+    .sn <- c(s,n)
+    .w <- (1-w)^(0:length(n))
+    sum(.w * v[.sn])/sum(.w)
+}
+
+
+smoothKNN <- function(expM, nn, wt = 0.1, bidirect = F) {
+  .knn.scores <- vapply(ncol(expM), FUN.VALUE=numeric(nrow(expM)), FUN=function(f) {
+    .v <- expM[,f]
+    .knn.s <- vapply(X = seq_len(nrow(nn)),  FUN.VALUE = numeric(1), FUN = function(x) {smKNN(x, nn[x,], .v, wt) })
+    if (isFALSE(bidirect)) .knn.s <- pmax(.knn.s, .v)
+    return(.knn.s)
+  })
+  return(.knn.scores)
+}
+
+
+smoothScores <- function(seu, features, assay = 'RNA', slot = "data",  k = 10,
+                         wt = 0.1, bidirect = FALSE, reduction = 'umap', dim = 2,
+                         method = 'KNN') {
+  if (!inRange(wt, c(0,1))) stop("wt MUST be between 0 and 1")
+  .k <- ifelse(k<=0, 1, k)
+  .data.type.seu <- getDatatype(seu)
+  .data.type.redct <- getDatatype(reduction)
+  if(.data.type.seu == 'seu') {
+    DefaultAssay(seu) <- assay
+    .expM <- Seurat::FetchData(seu, vars = features, slot = slot)
+    .redct <-Seurat::Reductions(seu)
+    if (.data.type.redct == 'cha'){
+      if (!reduction %in% .redct) stop(DateMes(stringr::str_glue("{reduction} missing in this object")))
+      .xy <- Seurat::Embeddings(seu, reduction = reduction)[, 1:dim]
+    } else if (.data.type.redct %in% c('mtx', 'df')) {
+      .xy <- reduction[, 1:dim]
+    } else {
+      stop(DateMes('reduction MUST be a matrix (data.frame) contains cell coordinate information format, or reduction in seurat object'))
+    }
+  } else if (.data.type.seu %in% c('mtx', 'df')){
+    .expM <- seu
+    .xy <- reduction[, 1:dim]
+  } else {
+    stop(DateMes('seu MUST be seurat object or expression matrix with data.frame format'))
+  }
+  .cell.n <- nrow(.expM)
+  if (.cell.n <= .k) .k <- .cell.n - 2
+  if (.cell.n > 3) {
+    .nn <- BiocNeighbors::findKNN(.xy, k = .k)
+    .smooth.scores <- get(paste0('smooth', method))(.expM, .nn$index, wt = wt, bidirect = bidirect)
+    .smooth.scores <- as.data.frame(.smooth.scores)
+    colnames(.smooth.scores) <- colnames(.expM)
+    rownames(.smooth.scores) <- rownames(.expM)
+  } else {
+    .smooth.scores <- .expM
+  }
+  return(.smooth.scores)
+}
+
+
+calPurity <- function(expS, gs = 0.6, shift = 0.2, ratio = 2, flag = c('other', 'unclear', 'pure'), neg = F, tofactor = F) {
+  .gs <- gs
+  if (isTRUE(neg)) .gs <- gs - ratio * shift
+  .neg <- shift
+  .neg <- ifelse(.neg < 0, 0, .neg)
+  .pur <- rep(flag[2], length(expS))
+  .pur[which(expS > .gs)] <- flag[3]
+  .pur[which(expS < .neg)] <- flag[1]
+  if (isTRUE(tofactor)) .pur <- factor(.pur, levels = flag)
+  return(.pur)
+}
+
+
 
 

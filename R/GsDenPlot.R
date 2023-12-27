@@ -26,11 +26,7 @@ calDensity <- function(w, cell.xy, bias, cells) {
     .z <- Matrix::tcrossprod(dnorm(.ax) * .w, dnorm(.ay) * .w) / (sum(.w) * .h[1] * .h[2])
     return(list(x = .gx, y = .gy, z = .z))
   }
-  .dens <- .wtden(
-    x = cell.xy[, 1],
-    y = cell.xy[, 2],
-    w = w / sum(w) * length(w),
-    bias = bias)
+  .dens <- .wtden(x = cell.xy[, 1], y = cell.xy[, 2], w = w / sum(w) * length(w), bias = bias)
   .xy <- cbind(findInterval(cell.xy[, 1], .dens$x), findInterval(cell.xy[, 2], .dens$y))
   return(.dens$z[.xy])
 }
@@ -141,3 +137,5 @@ GsDenPlot <- function(seu, features, slot = "data", assay = "RNA", bias = 1, red
   }
   plotFeatureDen(.Mat, .cell.xy, features, bias, size, shape, cells, pal, raster, ...)
 }
+
+

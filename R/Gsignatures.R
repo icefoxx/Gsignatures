@@ -10,7 +10,7 @@
 #' @return Signature matrix for gene sets
 #' @author Qiong Zhang
 #'
-calGSnorm <- function(expMatRank, geneSets, tfidfMatrix, imputation = F, scale = scale, retriRatio = 0.1, retriCellRatio = 0.1) {
+calGSnorm <- function(expMatRank, geneSets, tfidfMatrix, imputation = F, scale = scale, retriRatio = 0.1, retriCellRatio = 0.1, decay = 0.5) {
   .gene.all <- rownames(expMatRank)
   .m <- calRange(geneSets, .gene.all)
   .cell.n <- ncol(expMatRank)
@@ -61,18 +61,66 @@ calGSnorm <- function(expMatRank, geneSets, tfidfMatrix, imputation = F, scale =
     .gs.rank <- matrixStats::colMeans2(.rankMat.sub)
     .score <- scaleXY(.gs.rank, .m[,x])
     if (any(.gene.rev.index)){
-      .genes.rev <- .genes.a[.gene.rev.index]
+      .genes.rev <- gsub("-$", "", .genes.a[.gene.rev.index])
       .gs.ind.rev <- match(.genes.rev, .gene.all)
       .rankMat.sub.rev <- expMatRank[.gs.ind.rev, , drop = FALSE]
       .gs.rank.rev <- matrixStats::colMeans2(.rankMat.sub.rev)
-      .score.rev <- scaleXY(.gs.rank, .m[,x])/2
-      if (isTRUE(scale))  .score <- scale01(.score - .score.rev)
+      .score.rev <- scaleXY(.gs.rank.rev, .m[,x]) * decay
+      .score <- .score - .score.rev
     }
+    if (isTRUE(scale))  .score <- scale01(.score)
     return(.score)
   })
   .score.lst
 }
 
+
+#' Calculate weighted geneset scoring method
+#'
+#' @param expMatRank Ranking matrix of gene (row) X cell (col) matrix
+#' @param geneSets Genesets
+#' @param binwidth binwidth for scoring scale
+#' @param decay penalty for genes below the mean ranking
+#' @return Signatures of gene sets in list object
+#' @author Qiong Zhang
+#'
+weightedBinScore <- function(expMatRank, geneSets, binwidth = 0.2, decay = 0.5) {
+  .cell.n <- ncol(expMatRank)
+  .gene.all <- rownames(expMatRank)
+  .g.max <- length(.gene.all)
+  .g.non <- matrixStats::colCounts(expMatRank, value = 1)
+#  .g.mean <- matrixStats::colMeans2(expMatRank)
+  .g.mean <- (2 * .g.max - .g.non)/2
+  .g.bin.coe <- seq(-1, 1, binwidth)
+  .g.bin.n <- length(.g.bin.coe)
+  .g.bin.coe.m <- median(.g.bin.coe)
+  .penalty.index <- which(.g.bin.coe < .g.bin.coe.m)
+  .g.bin.coe[.penalty.index] <- .g.bin.coe[.penalty.index] * decay
+  .g.c.bin <- seq(0, .g.max, length.out = .g.bin.n + 1)
+  .score.lst <- lapply(seq_along(geneSets), function(x){
+    .genes.a <- geneSets[[x]]
+    .gene.rev.index <- grepl('-$', .genes.a, perl=TRUE)
+    .gene.index <- !.gene.rev.index
+    .genes <- .genes.a[.gene.index]
+    .gene.n <- length(.genes)
+    .gs.ind <- match(.genes, .gene.all)
+    .rankMat.sub <- expMatRank[.gs.ind, , drop = FALSE]
+    .score <- sapply(1:.cell.n, function(y){
+      .g.r <- .rankMat.sub[,y]
+      .g.in.rank.bins <- cut(.g.r, .g.c.bin)
+      .g.in.rank.bins.l <- levels(.g.in.rank.bins)
+      .score.s.p <- .g.bin.coe[match(.g.in.rank.bins, .g.in.rank.bins.l)]
+      .score.s.r <- .g.r - .g.mean[y]
+      .score.s <- sum(.score.s.p * abs(.score.s.r))/.gene.n
+      .score.max <- .g.max - .g.mean[y] - .gene.n/2
+      .score.min <- .g.mean[y] - 1
+      .score.scale <- .score.max + .score.min
+      .score.s <- .score.s / .score.scale
+      return(.score.s)
+    })
+  })
+  return(.score.lst)
+}
 
 #' Calculate normalized enrichment score for gene sets. To overcome the dropout effects in scRNA-seq data, imputate gene ranking via gene co-expression modules detected by affinity propagation (AP).
 #'
@@ -86,13 +134,18 @@ calGSnorm <- function(expMatRank, geneSets, tfidfMatrix, imputation = F, scale =
 #' @return Signatures gene sets
 #' @author Qiong Zhang
 #'
-calGSEscore <- function (expMatRank, geneSets, tfidfMatrix, imputation = F, scale = F, retriRatio = 0.1, retriCellRatio = 0.1) {
+calGSEscore <- function (expMatRank, geneSets, tfidfMatrix, imputation = F, scale = F, retriRatio = 0.1, retriCellRatio = 0.1, decay = 1, method = 'GSnorm') {
   .GSscore.neg <- 0
   .geneAll <- rownames(expMatRank)
   .geneNum.all <- length(.geneAll)
-  .GSscore.tot <- calGSnorm(expMatRank, geneSets, tfidfMatrix, imputation = imputation, scale = scale, retriRatio = retriRatio, retriCellRatio = retriCellRatio)
+  if (method == 'GSnorm'){
+    .GSscore.tot <- calGSnorm(expMatRank, geneSets, tfidfMatrix, imputation = imputation, scale = scale, retriRatio = retriRatio, retriCellRatio = retriCellRatio, decay = decay)
+  } else if (method == 'weightedBin'){
+    .GSscore.tot <- weightedBinScore(expMatRank, geneSets)
+  }
   return(list(GSig = .GSscore.tot))
 }
+
 
 #' Calculate normalized enrichment score for gene sets. To overcome the dropout effects in scRNA-seq data, imputate gene ranking via gene co-expression modules detected by affinity propagation (AP).
 #'
@@ -105,12 +158,13 @@ calGSEscore <- function (expMatRank, geneSets, tfidfMatrix, imputation = F, scal
 #' @param imputation logical value for gene ranking imputation
 #' @param retriRatio Drop out ratio of genes in given gene set.
 #' @param retriCellRatio The ratio of cells containing drop out genes.
+#' @param method Which method used for Gsignature calculate: 'GSnorm' or 'weightedBin'
 #' @name GSignatures Calculate gene set signatures in scRNA-seq data
 #' @return seu obj with new assay named as 'GSignatures'
 #' @export
 #' @author Qiong Zhang
 #'
-GSignatures <- function(Seuobj, geneSets, assay = "RNA", slot = "counts", add = F, scale = F, filterRM = F, normalByRow = F, imputation = F, retriRatio = 0, retriCellRatio = 0.1, dynamic = F, ignore = T){
+GSignatures <- function(Seuobj, geneSets, assay = "RNA", slot = "counts", add = F, scale = F, filterRM = F, normalByRow = F, imputation = F, retriRatio = 0, retriCellRatio = 0.1, ignore = T, decay = 0.5, method = 'GSnorm', binwidth = 0.2){
   require.pkgs <- c("tidyverse", "Seurat", "textmineR", "proxyC", "apcluster")
   invisible(lapply(require.pkgs, function(x) require(x, character.only = T, quietly = T)))
   .expMat <- assay2mtx(Seuobj, assay = assay, slot = slot)
@@ -149,7 +203,7 @@ GSignatures <- function(Seuobj, geneSets, assay = "RNA", slot = "counts", add = 
                                                           ties.method = "min",
                                                           preserveShape = TRUE)
   rownames(.expMat.tf_idf.NormByCell.rank) <- rownames(.expMat.tf_idf.NormByCell)
-  .GSignatures <- calGSEscore(.expMat.tf_idf.NormByCell.rank, .genesets, .expMat.tf_idf.NormByCell, scale = scale, imputation = imputation, retriRatio = retriRatio, retriCellRatio = retriCellRatio)
+  .GSignatures <- calGSEscore(.expMat.tf_idf.NormByCell.rank, .genesets, .expMat.tf_idf.NormByCell, scale = scale, imputation = imputation, retriRatio = retriRatio, retriCellRatio = retriCellRatio, decay = decay,method = method)
   .Sample.GSignatures <- do.call(rbind, .GSignatures$GSig)
   rownames(.Sample.GSignatures) <- .gs.name
   colnames(.Sample.GSignatures) <- colnames(.expMat)
@@ -166,5 +220,4 @@ GSignatures <- function(Seuobj, geneSets, assay = "RNA", slot = "counts", add = 
   Seuobj[["GSignatures"]] <- SeuratObject::CreateAssayObject(counts = .Sample.GSignatures)
   return(Seuobj)
 }
-
 
