@@ -10,7 +10,7 @@
 #' @return Signature matrix for gene sets
 #' @author Qiong Zhang
 #'
-calGSnorm <- function(expMatRank, geneSets, tfidfMatrix, imputation = F, scale = scale, retriRatio = 0.1, retriCellRatio = 0.1, decay = 0.5) {
+calGSnorm <- function(expMatRank, geneSets, tfidfMatrix, imputation = F, scale = F, retriRatio = 0.1, retriCellRatio = 0.1, decay = 0.5) {
   .gene.all <- rownames(expMatRank)
   .m <- calRange(geneSets, .gene.all)
   .cell.n <- ncol(expMatRank)
