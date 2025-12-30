@@ -93,7 +93,7 @@ densityPlot <- function(z, labels, cell.xy, dims, size, shape, pal, legend, ...)
       axis.line = element_line(size = 0.25),
       strip.background = element_rect(color = "black", fill = "#ffe5cc")
     )
-  .p <- .p + scale_color_viridis_c(option = pal, ...)
+  .p <- .p + scale_color_viridis_c(option = pal, ...) + ggplot2::labs(color = labels, fill = labels)
   ggrastr::rasterise(.p, dpi = 300)
 }
 
